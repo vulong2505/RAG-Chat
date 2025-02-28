@@ -10,7 +10,7 @@ from pathlib import Path
 from langchain.schema import Document
 from app.chains.base import ChainManager
 from app.workflow.graph import RAGWorkflowManager
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 
 async def test_system():
 

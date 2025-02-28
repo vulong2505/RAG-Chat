@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from langchain.retrievers.multi_query import MultiQueryRetriever
-from langchain_community.chat_models import ChatOllama
-from langchain_community.vectorstores import Chroma
+from langchain_ollama import ChatOllama
+from langchain_chroma import Chroma
 from langchain_nomic.embeddings import NomicEmbeddings
 from langgraph.graph import END, StateGraph, START
 from fastapi.responses import StreamingResponse

@@ -1,11 +1,11 @@
 from typing import Dict, Any, List
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.documents import Document
 from langchain import hub
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_nomic.embeddings import NomicEmbeddings
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_community.tools.tavily_search import TavilySearchResults
@@ -87,9 +87,6 @@ class ChainManager:
         self.vectorstore_topics.update(self.extract_topics(doc_splits))
         print("Current vectorstore topics: ", self.vectorstore_topics)
         
-        # Persist changes
-        self.vectorstore.persist()
-
 
     def get_vectorstore_info(self) -> Dict[str, Any]:
         """Get information about the current vector store"""
