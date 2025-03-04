@@ -85,9 +85,9 @@ class RAGWorkflowManager:
         
         return workflow
 
-    async def process_message(self, message: str) -> Dict[str, Any]:
+    async def process_message(self, message: str, history=None) -> Dict[str, Any]:
         """Process a message through the RAG workflow"""
-        inputs = {"question": message}
+        inputs = {"question": message, "history": history or []}
         final_output = None
         
         # Stream through the workflow

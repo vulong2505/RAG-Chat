@@ -1,39 +1,74 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, Body, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from langchain.schema import Document
 from langchain_community.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader
-from typing import List
+from typing import List, Optional
+from sqlalchemy.orm import Session
 
 import os
 import tempfile
 
 from app.models.types import ChatRequest, ChatResponse
 from app.workflow.graph import RAGWorkflowManager
-
-class ChatRequest(BaseModel):
-    message: str
+from app.database.session import get_db
+from app.repositories.conversation_repository import ConversationRepository
+from app.api.conversations import router as conversation_router
 
 app = FastAPI()
 
 # CORS setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # Your React frontend
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Add router
+app.include_router(conversation_router, prefix="/api")
+
 # Initialize workflow manager upon app startup
 workflow_manager = RAGWorkflowManager()
 
+
 @app.post("/chat")
-async def chat(request: ChatRequest) -> ChatResponse:
-    """ Chat with the model """
+async def chat(request: ChatRequest, db: Session = Depends(get_db)):
+
+    # Extract conversation_id from the request body
+    conversation_id = request.conversation_id
+    
+    # Initialize repositories
+    repo = ConversationRepository(db)
+    
+    # Create conversation if not provided
+    if not conversation_id:
+        # Generate a title from the message
+        title = workflow_manager.chain_manager.extract_session_title(request.message)
+        conversation = repo.create_conversation(title)
+        conversation_id = conversation.id
+        history = []
+    else:
+        # Verify conversation exists
+        conversation = repo.get_conversation(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        # Get conversation history
+        history = []
+        for msg in conversation.messages:
+            history.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+    
+    # Save user message
+    repo.add_message(conversation_id, "user", request.message)
+    history.append({"role": "user", "content": request.message})
     
     # Process the message
-    result = await workflow_manager.process_message(request.message)
+    result = await workflow_manager.process_message(request.message, history)
     
     # Handle different formats of generation response
     answer = ""
@@ -52,10 +87,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
                 "content": doc.page_content if hasattr(doc, "page_content") else str(doc),
                 "source": doc.metadata.get("source", "unknown") if hasattr(doc, "metadata") else "unknown"
             })
-    
+
+    # Save assistant message with sources
+    repo.add_message(conversation_id, "assistant", answer, sources)
+
     return {
         "answer": answer,
-        "sources": sources
+        "sources": sources,
+        "conversation_id": conversation_id
     }
 
 @app.post("/upload")

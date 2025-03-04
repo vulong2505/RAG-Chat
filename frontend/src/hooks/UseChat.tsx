@@ -1,9 +1,50 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Message, Source } from '../types';
 
 export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
+  const [conversationTitle, setConversationTitle] = useState<string>('');
+
+  // Load messages when a conversation is selected
+  const loadConversation = useCallback(async (conversationId: number) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`http://localhost:8000/api/conversations/${conversationId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to load conversation');
+      }
+      
+      const data = await response.json();
+      
+      // Convert API message format to our app's format
+      const formattedMessages: Message[] = data.messages.map((msg: any) => ({
+        role: msg.role,
+        content: msg.content,
+        sources: msg.sources.map((src: any) => ({
+          content: src.content,
+          source: src.source
+        }))
+      }));
+      
+      setMessages(formattedMessages);
+      setCurrentConversationId(conversationId);
+      setConversationTitle(data.title);
+    } catch (error) {
+      console.error('Error loading conversation:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Reset for a new conversation
+  const startNewConversation = useCallback(() => {
+    setMessages([]);
+    setCurrentConversationId(null);
+    setConversationTitle('');
+  }, []);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
@@ -14,16 +55,28 @@ export const useChat = () => {
     setIsLoading(true);
 
     try {
+      // Prepare request data based on whether it's a new or existing conversation
+      const requestData = {
+        message: content,
+        ...(currentConversationId ? { conversation_id: currentConversationId } : {})
+      };
+
       // Call your backend API
       const response = await fetch('http://localhost:8000/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: content }),
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) throw new Error('Failed to get response');
 
       const data = await response.json();
+      
+      // Update conversation ID if this was a new conversation
+      if (!currentConversationId && data.conversation_id) {
+        setCurrentConversationId(data.conversation_id);
+        setConversationTitle(data.title || 'New Conversation');
+      }
       
       // Prepare sources if available
       let sources: Source[] = [];
@@ -55,7 +108,15 @@ export const useChat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [currentConversationId]);
 
-  return { messages, sendMessage, isLoading };
+  return { 
+    messages, 
+    sendMessage, 
+    isLoading,
+    loadConversation,
+    startNewConversation,
+    currentConversationId,
+    conversationTitle
+  };
 };

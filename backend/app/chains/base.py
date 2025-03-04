@@ -11,9 +11,10 @@ from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_community.tools.tavily_search import TavilySearchResults
 from pathlib import Path
 import os
+import json
 
 from ..config.settings import settings
-from ..models.types import ExtractedTopics
+from ..models.types import ExtractedTopics, ExtractedTitle
 
 class ChainManager:
     
@@ -30,7 +31,8 @@ class ChainManager:
         self._setup_retriever()
 
         # Vectorstore topics
-        self.vectorstore_topics = set()
+        self.topics_file_path = self._get_topics_file_path()
+        self.vectorstore_topics = self._load_topics()
 
         # Initialize web search tool with Tavily
         self.web_search_tool = TavilySearchResults(k=3)
@@ -63,6 +65,39 @@ class ChainManager:
             llm=self.rag_llm_json
         )
 
+    def _get_topics_file_path(self) -> Path:
+        """Get the path to the topics file"""
+        base_dir = Path(__file__).parent.parent  # app/
+        topics_dir = os.path.join(base_dir, "data", "vectorstore_topics")
+        
+        # Create directory if it doesn't exist
+        os.makedirs(topics_dir, exist_ok=True)
+        
+        return os.path.join(topics_dir, "topics.txt")
+    
+    def _load_topics(self) -> set:
+        """Load vectorstore topics from file"""
+        topics = set()
+        
+        if os.path.exists(self.topics_file_path):
+            try:
+                with open(self.topics_file_path, 'r') as f:
+                    topics = set(json.load(f))
+                print(f"Loaded {len(topics)} topics from {self.topics_file_path}")
+            except Exception as e:
+                print(f"Error loading topics: {e}")
+        
+        return topics
+
+    def _save_topics(self):
+        """Save vectorstore topics to file"""
+        try:
+            with open(self.topics_file_path, 'w') as f:
+                json.dump(list(self.vectorstore_topics), f)
+            print(f"Saved {len(self.vectorstore_topics)} topics to {self.topics_file_path}")
+        except Exception as e:
+            print(f"Error saving topics: {e}")
+
     async def add_documents(self, documents: List[Document]):
         """
         Add documents into the vector store with chunking
@@ -86,6 +121,9 @@ class ChainManager:
         # Update vector store topics
         self.vectorstore_topics.update(self.extract_topics(doc_splits))
         print("Current vectorstore topics: ", self.vectorstore_topics)
+
+        # Save updated topics to file
+        self._save_topics()
         
 
     def get_vectorstore_info(self) -> Dict[str, Any]:
@@ -128,6 +166,9 @@ class ChainManager:
 
         # Extract topics chain
         self.extract_topics_chain = self._create_extract_topics_chain()
+
+        # Session title summary chain
+        self.extract_session_title_chain = self._create_extract_session_title_chain()
 
     def _create_question_router_chain(self):
         """Agent to route the workflow to the vectorstore, web search, or directly based on the user's question"""
@@ -223,8 +264,13 @@ class ChainManager:
         """The generate chain using the RAG context (if provided) and user's question"""
 
         generate_prompt = PromptTemplate(
-            template="""You are a helpful and conversational assistant. Ground your answer in the provided context. If the context doesn't provide enough information, answer based on your existing, expert knowledge and don't mention the source of your information or what the context does or doesn't include.
+            template="""You are a helpful and conversational assistant. Use the following conversation history and context to answer the user's question. Ground your answer in the provided context. If the context doesn't provide enough information, answer based on your existing, expert knowledge and don't mention the source of your information or what the context does or doesn't include.
 
+        Conversation History (if provided):
+        -- <START CONVERSATION HISTORY>
+        {history}
+        -- <END CONVERSATION HISTORY>
+        
         Context (if provided):
         -- <START CONTEXT>
         {context}
@@ -233,7 +279,7 @@ class ChainManager:
         Question: {question}
 
         Provide a clear, conversational explanation using the information from the context.""",
-            input_variables=["context", "question"]
+            input_variables=["history", "context", "question"]
         )
 
         return generate_prompt | self.chat_llm | self.structure_response
@@ -241,7 +287,7 @@ class ChainManager:
     def _create_extract_topics_chain(self):
         """Agent to extract vector store topics from documents"""
 
-        parser = JsonOutputParser(pydantic_object=ExtractedTopics)
+        topics_parser = JsonOutputParser(pydantic_object=ExtractedTopics)
 
         extract_topic_prompt = PromptTemplate(
             template="""Extract ONLY the main topics from these documents as a list of short keywords.
@@ -259,10 +305,33 @@ class ChainManager:
             - Return exactly in the JSON format specified above
             """,
             input_variables=["documents"],
-            partial_variables={"format_instructions": parser.get_format_instructions()}
+            partial_variables={"format_instructions": topics_parser.get_format_instructions()}
         )
         
-        return extract_topic_prompt | self.rag_llm_structured | parser
+        return extract_topic_prompt | self.rag_llm_structured | topics_parser
+
+    def _create_extract_session_title_chain(self):
+        """Agent to create a session title based on initial user query"""
+        
+        session_title_parser = JsonOutputParser(pydantic_object=ExtractedTitle)
+
+        extract_session_title_prompt = PromptTemplate(
+            template="""Concisely summarize the provided question into one short title.
+            
+            Question: {question}
+
+            {format_instructions}
+
+            Important instructions:
+            - Be as brief as possible while being coherent in the summary.
+            - Max one sentence.
+            - Return exactly in the JSON format specified above
+            """,
+            input_variables=["question"],
+            partial_variables={"format_instructions": session_title_parser.get_format_instructions()}
+        )
+
+        return extract_session_title_prompt | self.rag_llm_structured | session_title_parser
 
     ##### NODES #####
 
@@ -300,12 +369,21 @@ class ChainManager:
         print("---GENERATE---")
         question = state["question"]
         documents = state.get("documents", [])
+        history = state.get("history", [])
+
+        # Format documents
         formatted_documents = self.format_docs(docs=documents)
+        
+        # Format conversation history for prompt
+        formatted_history = ""
+        if history:
+            for msg in history:
+                formatted_history += f"{msg['role'].title()}: {msg['content']}\n\n"
 
         # RAG generation
-        generation = self.generate_chain.invoke({"context": formatted_documents, "question": question})
+        generation = self.generate_chain.invoke({"context": formatted_documents, "question": question, "history": formatted_history})
 
-        return {"documents": documents, "question": question, "generation": generation}
+        return {"documents": documents, "question": question, "generation": generation, "history": history}
 
     def grade_documents(self, state):
         """
@@ -397,7 +475,6 @@ class ChainManager:
         print(f"Vectorstore topics used to route: ", {', '.join(list(self.vectorstore_topics))})
         source = self.question_router.invoke({"question": question, "vectorstore_topics": ', '.join(self.vectorstore_topics)})
         print(source)
-        print(source["datasource"])
         if source["datasource"] == "web_search":
             print("---ROUTE QUESTION TO WEB SEARCH---")
             return "web_search"
@@ -480,8 +557,8 @@ class ChainManager:
                 print("---DECISION: GENERATION DOES NOT ADDRESS QUESTION---")
                 return "not useful"
         else:
-            print("Generation:", generation)
-            print("Documents:", documents)
+            # print("Generation:", generation)
+            # print("Documents:", documents)
             print("---DECISION: GENERATION IS NOT GROUNDED IN DOCUMENTS, RE-TRY---")
             return "not supported"
 
@@ -504,8 +581,15 @@ class ChainManager:
         """Extract main topics from documents using the RAG LLM"""
 
         response = self.extract_topics_chain.invoke({"documents": self.format_docs(docs=documents)})
-        print("In extract_topics:\n", response)
         topics = set(response["topics"])
         print("Extracted topics: ", topics)
 
         return topics
+    
+    def extract_session_title(self, question):
+        """Extract the session title from the initial query"""
+        
+        response = self.extract_session_title_chain.invoke({"question": question})
+        session_title = response["title"]
+
+        return session_title
