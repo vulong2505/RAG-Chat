@@ -292,6 +292,9 @@ class ChainManager:
         extract_topic_prompt = PromptTemplate(
             template="""Extract ONLY the main topics from these documents as a list of short keywords.
             
+            IMPORTANT: Pay equal attention to ALL parts of the document. The beginning sections (title, abstract, introduction) 
+            often contain the most important topics. Do not focus excessively on examples or appendices.
+
             Documents:
             {documents}
             
@@ -300,7 +303,7 @@ class ChainManager:
             Important instructions:
             - Return ONLY a list of short topic keywords
             - Do NOT include any summary or explanation
-            - Each topic should be a single word or short phrase
+            - Each topic should be a 1-3 words
             - Focus on the central themes and subjects
             - Return exactly in the JSON format specified above
             """,
@@ -581,7 +584,12 @@ class ChainManager:
         """Extract main topics from documents using the RAG LLM"""
 
         response = self.extract_topics_chain.invoke({"documents": self.format_docs(docs=documents)})
-        topics = set(response["topics"])
+        print(response)
+        try:
+            topics = set(response["topics"])
+        except:
+            topics = set(response)
+
         print("Extracted topics: ", topics)
 
         return topics

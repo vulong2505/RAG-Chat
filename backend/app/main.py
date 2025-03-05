@@ -159,5 +159,7 @@ async def upload_document(file: UploadFile = File(...)):
         # Clean up the temp file in case of error
         if os.path.exists(temp_path):
             os.unlink(temp_path)
+
+        print(e)
         
         raise HTTPException(status_code=500, detail=f"Error processing document: {str(e)}")

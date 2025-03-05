@@ -73,8 +73,6 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ...(currentConversationId ? { conversation_id: currentConversationId } : {})
       };  
 
-      console.log(requestData.conversation_id)
-
       // Call your backend API
       const response = await fetch('http://localhost:8000/chat', {
         method: 'POST',
