@@ -12,7 +12,7 @@ A chat application with an advanced, agentic RAG system. The RAG architecture im
     - [Prerequisites](#prerequisites)
     - [Backend Setup](#backend-setup)
     - [Frontend Setup](#frontend-setup)
-
+- [Reset the Database](#reset-the-database)
 
 ## Overview
 
@@ -127,3 +127,11 @@ npm run dev
 ```
 
 4. Open your browser and visit `http://localhost:5173`
+
+## Reset the Database
+
+To reset the ChromaDB vectorstore and SQLite database:
+```bash
+# from RAG_Chat/backend/
+py -m app.database.reset_db
+```
