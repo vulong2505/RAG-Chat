@@ -598,6 +598,10 @@ class ChainManager:
         """Extract the session title from the initial query"""
         
         response = self.extract_session_title_chain.invoke({"question": question})
-        session_title = response["title"]
+        
+        try:
+            session_title = response["title"]
+        except:
+            session_title = response["properties"]["title"]["description"]
 
         return session_title
