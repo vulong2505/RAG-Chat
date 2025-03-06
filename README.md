@@ -20,6 +20,7 @@ https://github.com/user-attachments/assets/c4b0cc2e-da9f-40e9-96b2-11461f983b48
 <div align="center">
   <p><em>Video 1: Demonstration of the local RAG chat and how queries are routed in the adaptive workflow. The first query utilizes the advanced RAG pipeline. The second query utilizes web search. And, the final query is generated directly without retrieval.</em></p>
 </div>
+
 ## Advance RAG Workflow
 
 Unlike a basic RAG implementation, this system features:
